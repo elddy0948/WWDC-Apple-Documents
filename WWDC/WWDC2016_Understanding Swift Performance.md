@@ -52,15 +52,11 @@ Heap에서 메모리 할당을 하기 위해서는 이 블록이 들어가기에
 
 WWDC의 예제 코드를 한번 보겠습니다. 
 
-![image-20210302142803004](/Users/kimhojoon/Library/Application Support/typora-user-images/image-20210302142803004.png)
+![image](https://user-images.githubusercontent.com/40102795/109605684-e4c71680-7b68-11eb-89e4-8db5c34c9121.png)
 
 구조체로 선언된 Point는 우선 point1과 point2에 대한 공간은 Stack에 이미 할당이 되어있습니다. 또한 Point는 구조체이므로, x와 y가 Stack 내부에 들어있는 모습을 볼 수 있습니다. 
 
-
-
-![image-20210302143605045](/Users/kimhojoon/Library/Application Support/typora-user-images/image-20210302143605045.png)
-
-다음은 각각 point1 인스턴스와 point2 인스턴스가 생성된 후의 Stack을 나타낸 그림입니다. 우선 이미 할당되어 있던 point1에 대한 공간에 x값과 y값을 각각 0으로 초기화 시켜줍니다. 이후 point2는 point1을 복제(copy)하여 point2의 공간에 할당됩니다. 
+![image](https://user-images.githubusercontent.com/40102795/109605709-f14b6f00-7b68-11eb-9b3d-141506ac5e02.png)다음은 각각 point1 인스턴스와 point2 인스턴스가 생성된 후의 Stack을 나타낸 그림입니다. 우선 이미 할당되어 있던 point1에 대한 공간에 x값과 y값을 각각 0으로 초기화 시켜줍니다. 이후 point2는 point1을 복제(copy)하여 point2의 공간에 할당됩니다. 
 
 point1과 point2는 독립적인 인스턴스임을 명심해야 합니다! 그렇기에 아래줄에 있는 
 
@@ -70,30 +66,30 @@ point2.x = 5
 
 코드를 실행하면 다음 그림과 같이 point2의 x에 대해서만 값의 변경이 일어납니다. 
 
-<img src="/Users/kimhojoon/Library/Application Support/typora-user-images/image-20210302143839067.png" alt="image-20210302143839067" style="zoom:33%;" />
+![image](https://user-images.githubusercontent.com/40102795/109605739-fb6d6d80-7b68-11eb-8d2e-ce537acb1fee.png)
 
 이후 point1과 point2에 대한 사용을 끝내면, deallocate되고 난 후의 Stack은 아래의 그림과 같은 모습이겠죠!
 
-<img src="/Users/kimhojoon/Library/Application Support/typora-user-images/image-20210302144057305.png" alt="image-20210302144057305" style="zoom:33%;" />
+![image](https://user-images.githubusercontent.com/40102795/109605761-02947b80-7b69-11eb-9485-89997fcc2952.png)
 
 아까 Stack에서 설명한 것 처럼, Stack의 Pointer를 증가시켜주면서, point1, point2에 대한 공간을 deallocate해줍니다. 
 
-![image-20210302144253641](/Users/kimhojoon/Library/Application Support/typora-user-images/image-20210302144253641.png)
+![image](https://user-images.githubusercontent.com/40102795/109605781-09bb8980-7b69-11eb-9f5a-7b8c37ae05d1.png)
 
 이번에는 class를 사용한 Point입니다. Struct로 만들었을 때와는 다르게 point1과 point2에 대한 공간이 다른것을 볼 수 있습니다. 저 공간은 바로 Heap에 있는 Point를 가르키기 위한 Reference를 저장할 공간입니다. 
 
-![image-20210302145057270](/Users/kimhojoon/Library/Application Support/typora-user-images/image-20210302145057270.png)
+![image](https://user-images.githubusercontent.com/40102795/109605800-117b2e00-7b69-11eb-9702-2238b24ecbb2.png)
 
 point1을 생성합니다! 어떤일이 벌어지는지 보이시나요? 우선 point1에서 사용될 Point에 대한 공간을 찾기 위해서 우리의 Swift는 Heap을 lock시킵니다. 그리고선 열심히! 사용하지 않고, 적절한 사이즈를 가진 블록을 찾아서 그곳에 x는 0, y는 0으로 초기화된 Point 공간을 할당하게 됩니다. 그리고 point1은 Heap의 메모리 주소를 참조할 수 있게 됩니다. 
 
 Struct와 비교하여 보면 Point에 대한 공간에 더 많은 공간이 할당된 것을 볼 수 있습니다. 이것은 Swift가 우리를 위해 추가적으로 관리해 주는 공간이라고 볼 수 있습니다. 
 
-![image-20210302145853389](/Users/kimhojoon/Library/Application Support/typora-user-images/image-20210302145853389.png)
+![image](https://user-images.githubusercontent.com/40102795/109605816-193ad280-7b69-11eb-8c52-463de605779c.png)
 
 이번에는 point2를 생성합니다! 이전의 구조체와는 다르게 point1 전체를 copy하지는 않습니다. 대신에, point1의 reference를 copy하게 됩니다. 즉, point1과 point2는 Heap메모리에 같은 주소를 참조하고 있게 됩니다. 그렇기 때문에 point2의 x값을 바꾸면 point1의 x값 또한 같이 바뀌게 되는것입니다. 
 
 이후 point1과 point2의 사용이 끝나고 deallocate해주면
 
-<img src="/Users/kimhojoon/Library/Application Support/typora-user-images/image-20210302150145833.png" alt="image-20210302150145833" style="zoom:33%;" />
+![image](https://user-images.githubusercontent.com/40102795/109605838-1fc94a00-7b69-11eb-8ab9-8596d6f8e598.png)
 
 이러한 형태가 됩니다. Heap을 lock하고, 사용한 블록을 적절한 위치에 reinsert하는 과정이 되겠죠? 그 과정이 끝난 후에 Stack을 pop하여 나머지 point1과 point2에 대한 메모리도 해제해줄 수 있게 됩니다. 
