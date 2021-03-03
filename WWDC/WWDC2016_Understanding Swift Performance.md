@@ -98,7 +98,7 @@ Struct와 비교하여 보면 Point에 대한 공간에 더 많은 공간이 할
 
 하지만 Class에도 Identity, Indirect Storage와 같은 강력한 특성(Characteristics)들이 물론 있습니다! 하지만 이러한 특성들을 사용할 필요가 없다면 Struct를 사용하는 것이 더 효율적입니다. 
 
-<img src="/Users/kimhojoon/Library/Application Support/typora-user-images/image-20210302223658688.png" alt="image-20210302223658688" style="zoom:50%;" />
+![image](https://user-images.githubusercontent.com/40102795/109802357-0ad0e180-7c63-11eb-84e0-a46c0c9af073.png)
 
 또 하나의 예제 코드를 하나 보겠습니다. Message앱에 관한 코드입니다. Message앱에 말풍선을 구현하는 enum이 Color, Orientation, Tail 3가지가 있고, 여러가지 말풍선을 빠르게 읽어와야할 필요성이 있기 때문에(사용자가 스크롤을 엄청 빨리 올리는 경우...)  cache를 사용하여 그부분을 보완하고자 합니다. 
 
