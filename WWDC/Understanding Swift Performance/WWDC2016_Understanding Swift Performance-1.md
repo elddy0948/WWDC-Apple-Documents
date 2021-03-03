@@ -102,7 +102,7 @@ Struct와 비교하여 보면 Point에 대한 공간에 더 많은 공간이 할
 
 또 하나의 예제 코드를 하나 보겠습니다. Message앱에 관한 코드입니다. Message앱에 말풍선을 구현하는 enum이 Color, Orientation, Tail 3가지가 있고, 여러가지 말풍선을 빠르게 읽어와야할 필요성이 있기 때문에(사용자가 스크롤을 엄청 빨리 올리는 경우...)  cache를 사용하여 그부분을 보완하고자 합니다. 
 
-하지만 cache에 주목하면, cache의 key는 현재 String 타입입니다. String 타입을 key로 사용하는 것이 좋을까요? 그냥 "Joons"라는 문자열을 넣어도 그것이 key가 될 수 있습니다. key로 사용하기 좋은 타입이 아니죠! 또한 String은 그 문자열을 구성하는 Content들을 Heap에 저장하고 있습니다. 즉, makeBalloon 함수를 호출할 때마다 Heap을 사용하게 됩니다.
+하지만 cache에 주목하면, cache의 key는 현재 String 타입입니다. String 타입을 key로 사용하는 것이 좋을까요? 그냥 "Joons"라는 문자열을 넣어도 그것이 key가 될 수 있습니다. key로 사용하기 좋은 타입이 아니죠! 또한 String은 그 문자열을 구성하는 Content들을 Heap에 저장하고 있습니다. 즉, makeBalloon 함수를 호출할 때마다 Heap영역에 접근하게 됩니다.
 
 이것을 개선할 수 있는 방법은 뭘까요? 바로 Color와 Orientation, Tail을 하나의 구조체로 생성하는 것입니다.
 
@@ -471,3 +471,4 @@ for d in drawables {
 만약에 우리가 이러한 dynamism을 위해 비용을 지불하지 않아도 괜찮은데도 비용을 들이고 있다면 그것은 performance 측면에서 hurt할 것입니다. 
 
 하나의 물음이 더 있습니다. 바로 "How does one go about writing polymorphic code with structs?" 다형성을 가지는 코드를 구조체로 어떻게 작성될 것인가? 에 대한 의문이군요! 이것의 정답이 바로 **Protocol Oriented Programming**이라고 합니다!!!(멋짐)
+
