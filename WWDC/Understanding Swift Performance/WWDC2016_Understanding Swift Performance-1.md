@@ -360,3 +360,114 @@ struct Attachment {
 
 
 
+## Method Dispatch
+
+Method를 런타임에 호출하면, Swift는 올바른 메서드를 실행시켜야합니다. 만약 **컴파일 타임에 실행시키기에 올바른 메서드인지 결정지을 수 있다면 그것을 Static Dispatch라고 부릅니다.** 그리고 런타임에 그냥 올바른 실행문으로 jump하여 실행할 수 있게 됩니다. 컴파일러가 어떤것이 실행되기에 올바른 것인지 알 수 있다는 부분에서 정말 좋은 기능입니다. 그래서 우리는 **inlining**을 활용하여 코드를 꽤 적극적으로 최적화할 수 있습니다. 
+
+**Dynamic Dispatch는 컴파일 타임에 바로 어떤 실행문이 실행될지 결정할 수 없고, 런타임에 어떤 실행문이 맞는지 테이블을 확인하게 됩니다. (Look up implementation in table at run time) 그래서 실제로 런타임에 실행문을 찾아서 그곳으로 jump 합니다.** 그래서 Dynamic Dispatch가 Static Dispatch보다 그리 비싼 비용을 들이진 않습니다. 하나의 indirection 단계가 더 있을 뿐이죠. 하지만 Dynamic Dispatch는 컴파일러의 가시성(visibility)를 막기 때문에, 컴파일러가 Static Dispatch에서 하던 최적화 작업들을 Dynamic Dispatch에서는 할 수 없게 됩니다. (Prevents inlining and other optimizations)
+
+```swift
+struct Point {
+  var x, y: Double
+  func draw() {
+    //Point.draw implementation
+  }
+}
+func drawAPoint(_ param: Point) {
+  param.draw()
+}
+let point = Point(x: 0, y: 0)
+drawAPoint(point)
+```
+
+**inlining이란 무엇일까?** 위의 코드에서 drawAPoint 함수와 point.draw 메서드는 둘다 Statically dispatched입니다. Statically Dispatched의 의미는 컴파일러가 어떤 실행문을 실행시켜야할지 알 수 있다는 의미입니다.  그래서 기존의 drawAPoint(point) 부분을 그냥 point.draw()로 대체해도 상관이 없습니다. 혹은 Point.draw 실행문을 그대로 가져와 대체해도 상관이 없습니다. 어떤 draw()가 실행될지 이미 알기 때문이죠! 
+
+위 코드를 실행시키면 런타임에서는 그냥 Stack에서 point를 구성할 수 있고, 실행문을 실행시키고, 끝낼 수 있습니다. Static Dispatch에 대한 overhead나 관련 설정은 필요하지 않습니다. Static Dispatch가 Dynamic Dispatch보다 빠를 수 밖에 없는 것입니다. 
+
+하나의 Static Dispatch와 Dynamic Dispatch를 두고 비교를 한다면 큰 차이는 없습니다. 하지만 모든 Static Dispatch들의 chain을 두고 보면, 컴파일러는 그 Static Dispatch들의 chain에 대한 모든 Visibility를 가질 수 있습니다. 
+
+그에반해 Dynamic Dispatch의 chain은 하나하나 모두 상위 레벨에서 block 시켜놓습니다.
+
+따라서 컴파일러는 Static Method Dispatches chain을 콜 스택 오버헤드 없이 단일 구현으로 축소할 수 있습니다. 
+
+
+
+**그럼 왜 Dynamic Dispatch를 사용해야 할까요?**
+
+아래의 코드를 한번 살펴보겠습니다. 
+
+```swift
+class Drawable { func draw() {} }
+class Point: Drawable {
+  var x, y: Double
+  override func draw() { ... }
+}
+class Line: Drawable {
+  var x1, y1, x2, y2: Double
+  override func draw() { ... }
+}
+var drawables: [Drawable]
+for d in drawables {
+  d.draw()
+}
+```
+
+우선 첫번째 이유는 Polymorphism. 다형성의 힘입니다. 전통적인 OOP형식의 프로그램을 보면 위의 코드와 같이 Drawable이라는 superclass가 존재하고 Point subclass와 Line subclass를 정의할 수 있습니다. 
+
+```swift
+var drawables: [Drawable]
+```
+
+<img src="https://user-images.githubusercontent.com/40102795/109832517-c144be80-7c83-11eb-910e-ee1da2234345.png" alt="image" style="zoom:33%;" />
+
+drawables 배열의 모습입니다. Line도 포함할 수 있고, Point도 포함할 수 있겠죠, 그리고 각각의 draw 메서드 또한 호출할 수 있을 것입니다. 이게 어떻게 동작할까요? 
+
+Drawable과 Point, Line이 모두 클래스라서 배열 내부에는 Reference만 저장하면 끝이므로 모두 같은 사이즈를 가지고 있을 것입니다. 아래와 같은 그림이겠죠!
+
+<img src="https://user-images.githubusercontent.com/40102795/109833187-65c70080-7c84-11eb-83b7-a3df88f6e5e3.png" alt="image" style="zoom:33%;" />
+
+이제 draw메서드를 호출하는 부분으로 가보겠습니다.
+
+```swift
+for d in drawables {
+  d.draw()
+}
+```
+
+우리는 여기서 컴파일러가 왜 컴파일타임에 어떤 실행문을 실행해야 한다는 것을 결정할 수 없는지 이해할 수 있습니다. 왜냐하면 여기서 d.draw() 가 Point의 draw()가 될 수도 있고, Line의 draw()가 될 수도 있으며 그들은 다른 코드 경로를 가지고 있기 때문입니다. 어떻게 어떤것을 호출할지 결정할 수 있을까요? 
+
+컴파일러는 클래스들에 어떤 다른 필드를 추가합니다. 그것은 클래스에 대한 타입 정보를 가르키는 필드입니다. 아래의 그림과 같이 말이죠. 
+
+<img src="https://user-images.githubusercontent.com/40102795/109834120-3795f080-7c85-11eb-9173-0c131ccccadb.png" alt="image" style="zoom:33%;" />
+
+그리고 이것은 static memory에 저장됩니다. 그래서 draw 메서드를 호출할때, 컴파일러가 실제로 생성하는 것은 타입들을 조회할 수 있는 타입이나 Static Memory에 있는 Virtual Method Table이라고 하는 것을 찾아봅니다. 
+
+이 Virtual Method Table에는 실행할 실행문을 가리키는 포인터가 존재합니다. 그래서 실제로 코드는 이렇게 동작합니다.
+
+```swift
+for d in drawables {
+  d.type.vtable.draw(d)
+}
+```
+
+그러면 위의 그림에서 처럼 Line의 메서드를 찾고 있으므로, Line.Type의 draw: 필드는 실제 Line클래스의 override func draw(_ self: Line) 에 대한 위치를 가리키고 있습니다. 그것을 파라미터로 실제 인스턴스를 전달하면서 Line의 draw메서드를 호출하게 되는 것입니다. 
+
+
+
+여기서 나타난것 처럼 **클래스는 기본적으로 그들의 메서드를 Dynamically Dispatch 합니다.** 이것이 자체적으로 큰 차이를 만들어내지는 않지만, 메서드 채이닝이나 다른 인라인 같은 최적화를 막을 수 있습니다. 
+
+모든 클래스가 Dynamic Dispatch를 필요로 하지는 않습니다. 만약에 클래스의 서브클래스를 만들길 원치 않는다면, final 키워드를 활용하여 컴파일러가 이것을 확인하고 그 메서드들을 Statically dispatch 할 것 입니다. 더 나아가 컴파일러가 이 클래스를 서브클래싱 하지 않을 것이라는 추론하고 증명할 수 있다면, 기회를 보고 Dynamic Dispatch들을 대신하여 Static Dispatch해줄 것 입니다. 
+
+
+
+## 정리
+
+그렇기에 우리는 코드를 작성 할 때마다 이런 생각을 해야합니다. 
+
+- 이 인스턴스가 어디에 할당될까? Stack? Heap?
+- 인스턴스를 전달할 때 Reference Counting overhead가 많이 일어날까?
+- 이 인스턴스로 해당 메서드를 호출하면 static dispatch일까? Dynamic dispatch일까?
+
+만약에 우리가 이러한 dynamism을 위해 비용을 지불하지 않아도 괜찮은데도 비용을 들이고 있다면 그것은 performance 측면에서 hurt할 것입니다. 
+
+하나의 물음이 더 있습니다. 바로 "How does one go about writing polymorphic code with structs?" 다형성을 가지는 코드를 구조체로 어떻게 작성될 것인가? 에 대한 의문이군요! 이것의 정답이 바로 **Protocol Oriented Programming**이라고 합니다!!!(멋짐)
