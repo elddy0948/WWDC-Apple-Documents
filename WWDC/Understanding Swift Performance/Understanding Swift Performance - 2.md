@@ -287,5 +287,159 @@ Reference count를 decrement하고 value에 reference나 buffer가 존재한다�
 
 **이러한 방식을 통해서 Value Type인 Struct가 Protocol과 함께 결합하여 Dynamic behavior, Dynamic polymorphism을 얻을 수 있게 되는 것입니다.**  만약 dynamism이 필요하다면, 이전에 사용하였던 class를 상속받는 방법 보다는 이러한 Protocol을 활용한 방식이 더 좋은 비용이다! 라는 것을 말하는것 같습니다. 
 
+다음 예시 코드를 하나 더 보겠습니다!
 
+```swift
+struct Pair {
+  init(_ f: Drawable, _ s: Drawable) {
+    first = f
+    second = s
+  }
+  var first: Drawable
+  var second: Drawable
+}
+```
+
+first와 second라는 Drawable 프로토콜 타입인 두개의 저장 프로퍼티를 가지고 있습니다. Swift는 이 두개의 저장 프로퍼티를 어떻게 저장할까요? 
+
+```swift
+var pair = Pair(Line(), Point())
+```
+
+pair를 allocate하게 되면, 
+
+<img src="https://user-images.githubusercontent.com/40102795/110229069-0a2d9900-7f4a-11eb-9bed-b3cd8e458fb5.png" alt="image" style="zoom: 33%;" />
+
+Swift는 필요한 두개의 existential container를 저장할 것 입니다. 그리고 두개의 existential container를 Pair 구조체로 감싸서 pair의 inline에 저장하게 됩니다. 프로그램은 이후에 다음 그림과 같이 초기화를 진행합니다. 
+
+<img src="https://user-images.githubusercontent.com/40102795/110229124-790af200-7f4a-11eb-8096-433bfff30549.png" alt="image" style="zoom: 50%;" />
+
+이전에도 설명했듯 Line은 Heap영역에 저장될 것이고, Point는 valueBuffer에 맞기때문에 그대로 저장하게 됩니다. 
+
+또한 다형성을 지원하기 때문에 아래의 코드를 실행했을 때의 그림도 볼까요??
+
+```swift
+pair.second = Line()
+```
+
+<img src="https://user-images.githubusercontent.com/40102795/110229206-fdf60b80-7f4a-11eb-9508-22087dbf4b74.png" alt="image" style="zoom:50%;" />
+
+이런 모습을 하고있겠죠! 하지만 이번에는 2개의 Heap allocation이 발생하고 있습니다. 
+
+Heap allocation의 비용에 대한 이야기를 해볼까요? 
+
+```swift
+let aLine = Line(1.0, 1.0, 1.0, 3.0)
+let pair = Pair(aLine, aLine)
+let copy = pair
+```
+
+이번에도 똑같이 2개의 Line을 사용하여 Pair를 초기화하는 모습입니다. 아까의 그림과 같겠죠? 
+
+<img src="https://user-images.githubusercontent.com/40102795/110229313-e9fed980-7f4b-11eb-91fb-96521efc917d.png" alt="image" style="zoom:50%;" />
+
+2번의 Heap allocation이 발생합니다. 그리고 이 pair를 복사한 copy를 만드는 다음 코드를 실행시켜보면, 
+
+<img src="/Users/kimhojoon/Library/Application Support/typora-user-images/image-20210307135017958.png" alt="image-20210307135017958" style="zoom:50%;" />
+
+이런 그림을 볼 수 있겠죠! heap allocation은 많은 비용이 발생하는데 벌써 4개의 heap allocation이 보이고 있습니다. 
+
+이걸 개선해볼 수 있는 방법이 뭐가 있을까요?
+
+existential container에는 3칸짜리 valueBuffer 공간이 있었죠, 그리고 reference는 그 공간에 맞을거구요 왜냐하면 reference는 기본적으로 한칸만 차지하기 때문이죠! 
+
+<img src="https://user-images.githubusercontent.com/40102795/110229425-9fca2800-7f4c-11eb-9d00-2b2b62c55ebf.png" alt="image" style="zoom:50%;" />
+
+이렇게 말이죠! 그렇기 때문에 first를 복사한 second가 생성될 때에도 reference만 복제하면 된다는 의미입니다. 
+
+<img src="/Users/kimhojoon/Library/Application Support/typora-user-images/image-20210307135642374.png" alt="image-20210307135642374" style="zoom:50%;" />
+
+이런 그림이 나오겠네요! 그래서 이제 여기서 드는 비용은 추가적인 reference count만 발생하게 됩니다. 하지만 이러한 경우에는 만약에 아래와 같은 코드가 실행되면 어떻게 될까요?
+
+```swift
+second.x1 = 3.0
+```
+
+<img src="/Users/kimhojoon/Library/Application Support/typora-user-images/image-20210307135849538.png" alt="image-20210307135849538" style="zoom:50%;" />
+
+second의 x1을 바꾸는 동시에 first의 x1또한 영향을 받게 되겠죠! 즉, reference를 사용하면서 원본에 대한 공유 또한 함께 이루어지기 때문에 의도하지 않은 상태 공유가 일어날 수 있습니다. 이건 우리가 원하던 방식이 아닙니다! 
+
+여기서 사용할 수 있는 기술이 Copy and Write(COW) 라는 기술입니다.
+
+```swift
+class LineStorage { var x1, y1, x2, y2: Double }
+struct Line : Drawable {
+  var storage : LineStorage
+  init() { storage = LineStorage(Point(), Point()) }
+  func draw() { … }
+  mutating func move() {
+  	if !isUniquelyReferencedNonObjc(&storage) {
+  		storage = LineStorage(storage)
+  	}
+  	storage.start = ...
+  }
+}
+```
+
+Line에 바로 저장소를 구현하는 방법 대신에 LineStorage라는 class를 생성하여 Line 구조체에 대한 모든 Field를 가지고 있게 합니다. 그리고 Line 구조체는 이 LineStorage를 참조하고 있게 합니다. 그리고 값을 읽어오고 싶을 때에는 그 Storage안에 있는 값을 읽어오면 됩니다. 
+
+그러나 수정이 필요한 경우에는 Value를 변경해야할 때에는 우선적으로 reference count를 확인해야 합니다. 그런데 reference count가 1보다 크다? 위의 코드에서 isUniquelyReferencedNonObjc가 호출되는 분입니다. 이 메서드는 그저 하나의 기능을 합니다. Reference count가 1보다 큰가? 아니면 1과 같은가? 를 확인하는 용도이죠. 
+
+만약 1보다 큰다면, LineStorage에 대한 복사본을 생성하고, 그것을 변경(mutate)합니다. 
+
+아까전의 예시를 보면서 무슨일이 벌어지는지 한번 봅시다!
+
+```swift
+let aLine = Line(1.0, 1.0, 1.0, 1.0)
+let pair = Pair(aLine, aLine)
+let copy = pair
+```
+
+처음에 Line을 생성하는
+
+```swift
+let aLine = Line(1.0, 1.0, 1.0, 1.0)
+```
+
+가 호출되면, Heap영역에 Line이 생성됩니다. 우리는 이제 그것에 대한 reference만 저장하면 됩니다.
+
+<img src="https://user-images.githubusercontent.com/40102795/110229851-bd4cc100-7f4f-11eb-90ae-1f71d8bbeb33.png" alt="image" style="zoom:50%;" />
+
+이렇게 말이죠! reference count가 3인 이유는 처음에 aLine이라는 변수를 생성할 때 참조 한번, pair를 만드는 과정에서 두번의 참조가 일어나기 때문에 refCount의 값은 3이 됩니다. 이후에 copy변수를 생성하는
+
+```swift
+let copy = pair
+```
+
+위의 코드가 실행된다면... 역시 pair에 대한 참조를 복사하겠죠?
+
+<img src="/Users/kimhojoon/Library/Application Support/typora-user-images/image-20210307141850438.png" alt="image-20210307141850438" style="zoom:50%;" />
+
+이런 그림이 나올것입니다! reference들만 복사되었습니다. 그리고 refCount도 2 증가했네요! 위의 Reference가 가리키고 있는 곳은 모두 아까 살펴보았던 LineStorage라는 class타입의 storage이겠죠? LineStorage가 class 타입이므로 모두 한 곳을 가리키고 있습니다.
+
+그래서 이전에 살펴보았던 내부에서 값에대한 수정이 일어났을때, move 메서드를 실행하게 됩니다. move 메서드에서  isUniquelyReferencedNonObjc를 통해서 참조하고 있는 것이 하나인지, 하나 이상인지를 확인한 후 하나 이상일 때 그 storage에 대한 복사본을 만들고 난 후에 변경이 일어나게 됩니다. 
+
+<img src="https://user-images.githubusercontent.com/40102795/110230192-a360ad80-7f52-11eb-8c24-f5d22b262204.png" alt="image" style="zoom:50%;" />
+
+이런 그림을 볼 수 있겠죠?!
+
+이 방법이 heap allocation을 사용하였을때 보다 훨씬 저렴합니다. 
+
+
+
+### Protocol Type - Small Value
+
+자 이제 우리가 많은 값을 가지고 있지 않은 Protocol을 선언한다면, valueBuffer에 맞게 들어갈 것입니다. 이는 heap allocation이 필요없다는 의미이기도 하죠! 또한 reference 또한 포함하지 않을 것이므로, Reference counting도 없을 것입니다. 그래서 이건 매우 빠른 코드이죠!
+
+그럼에도 Value witness table과 Protocol witness table 를 활용하여 dynamic dispatch와 dynamically polymorph behavior까지 할 수 있습니다. 
+
+
+
+### Protocol Type - Large Value
+
+Large Value일 경우에는 Protocol 타입의 변수를 초기화나 할당 할때마다 heap allocation이 발생합니다. value가 reference를 가지고 있을 경우에 reference counting이 발생할 수 있는 가능성 또한 있습니다. 하지만 COW 기술을 활용한 indirect storage를 활용할 경우에는 값비싼 heap allocation을 줄일 수 있습니다. 
+
+
+
+Protocol 타입을 사용하면서 Value type들의 dynamic polymerphism을 가능하게 하고, Witness table과 existential container를 활용한 indirection 또한 가능하게 했습니다. 또한 Large Value에 대한 Heap allocation이 발생하는데 그것 또한 앞서 살펴본 COW기술과 Indirection Storage를 활용하여 차이를 만들어낼 수 있었습니다. 
 
