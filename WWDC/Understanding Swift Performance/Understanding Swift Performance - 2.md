@@ -206,7 +206,7 @@ Line일 경우 이렇게 생성이 되겠고, 아래의 그림을 보면 vwt, pw
 
 ![image](https://user-images.githubusercontent.com/40102795/110007292-db52cf80-7d5d-11eb-8c3b-2b524ec38de7.png)
 
-이렇게 되겠네요! 하지만 Point의 경우에는 별도로 Heap allocate가 필요하지 않으므로, 
+이렇게 되겠네요! 하지만 Point의 경우에는 별도로 valueBuffer에 대한 Heap allocate가 필요하지 않으므로, 
 
 ![image-20210305025306846](/Users/kimhojoon/Library/Application Support/typora-user-images/image-20210305025306846.png)
 
@@ -383,7 +383,7 @@ struct Line : Drawable {
 
 Line에 바로 저장소를 구현하는 방법 대신에 LineStorage라는 class를 생성하여 Line 구조체에 대한 모든 Field를 가지고 있게 합니다. 그리고 Line 구조체는 이 LineStorage를 참조하고 있게 합니다. 그리고 값을 읽어오고 싶을 때에는 그 Storage안에 있는 값을 읽어오면 됩니다. 
 
-그러나 수정이 필요한 경우에는 Value를 변경해야할 때에는 우선적으로 reference count를 확인해야 합니다. 그런데 reference count가 1보다 크다? 위의 코드에서 isUniquelyReferencedNonObjc가 호출되는 분입니다. 이 메서드는 그저 하나의 기능을 합니다. Reference count가 1보다 큰가? 아니면 1과 같은가? 를 확인하는 용도이죠. 
+그러나 수정이 필요한 경우에는 Value를 변경해야할 때에는 우선적으로 reference count를 확인해야 합니다. 그런데 reference count가 1보다 크다? 위의 코드에서 isUniquelyReferencedNonObjc가 호출되는 부분입니다. 이 메서드는 그저 하나의 기능을 합니다. Reference count가 1보다 큰가? 아니면 1과 같은가? 를 확인하는 용도이죠. 
 
 만약 1보다 큰다면, LineStorage에 대한 복사본을 생성하고, 그것을 변경(mutate)합니다. 
 
