@@ -13,6 +13,7 @@
 		B40E623C26230E3200CAD604 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = B40E623A26230E3200CAD604 /* Main.storyboard */; };
 		B40E623E26230E3200CAD604 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B40E623D26230E3200CAD604 /* Assets.xcassets */; };
 		B40E624126230E3200CAD604 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = B40E623F26230E3200CAD604 /* LaunchScreen.storyboard */; };
+		B40E624A26231B0000CAD604 /* MyCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40E624926231B0000CAD604 /* MyCell.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +25,7 @@
 		B40E623D26230E3200CAD604 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B40E624026230E3200CAD604 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		B40E624226230E3200CAD604 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B40E624926231B0000CAD604 /* MyCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyCell.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -63,6 +65,7 @@
 				B40E623D26230E3200CAD604 /* Assets.xcassets */,
 				B40E623F26230E3200CAD604 /* LaunchScreen.storyboard */,
 				B40E624226230E3200CAD604 /* Info.plist */,
+				B40E624926231B0000CAD604 /* MyCell.swift */,
 			);
 			path = DragAndDropCollectionView;
 			sourceTree = "<group>";
@@ -138,6 +141,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B40E623926230E3200CAD604 /* ViewController.swift in Sources */,
+				B40E624A26231B0000CAD604 /* MyCell.swift in Sources */,
 				B40E623526230E3200CAD604 /* AppDelegate.swift in Sources */,
 				B40E623726230E3200CAD604 /* SceneDelegate.swift in Sources */,
 			);
