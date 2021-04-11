@@ -130,6 +130,5 @@ extension ViewController: UICollectionViewDropDelegate {
             }
         })
         coordinator.drop(dragItem, toItemAt: destinationIndexPath)
-        print(destinationIndexPath)
     }
 }
