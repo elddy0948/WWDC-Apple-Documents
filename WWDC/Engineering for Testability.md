@@ -1,6 +1,6 @@
 # WWDC17 Engineering for Testability
 
-## Testable App Code
+# Testable App Code
 
 How a test suite could help during the development of my app.
 
@@ -115,4 +115,203 @@ UIApplication.shared
 
 `open(url, options: [:], completionHandler: nil)` Unit test는 이 코드에서 URL을 열 때 발생할 수 있는 Side effect를 관찰할 수 있는 좋은 방법도 존재하지 않습니다.
 
-Scalable test code?
+실제로 이 `openTapped(_ sender: Any)` 메서드를 실행하면, 테스트를 진행중인 앱은 Background로 보내질 것이고, 이를 다시 Foreground로 불러올 수 있는 방법은 존재하지 않죠. 이 코드의 testability를 향상시킬 수 있는 방법에 대해서 알아보겠습니다.
+
+### Improve Testability
+
+우리는 먼저 이 메서드를 view controller로 부터 꺼낼 수 있습니다.
+
+```swift
+class DocumentOpener {
+ enum OpenMode: String {
+	 case view
+	 case edit
+ }
+ func open(_ document: Document, mode: OpenMode) {
+	 let modeString = mode.rawValue
+	 let url = URL(string: "myappscheme://open?id=\\(document.identifier)&mode=\\(modeString)")!
+	 if UIApplication.shared.canOpenURL(url) {
+		 UIApplication.shared.open(url, options: [:], completionHandler: nil)
+	 } else {
+		 handleURLError()
+	 }
+ }
+}
+```
+
+Document Open에 관련된 로직과 행동을 캡슐화한 새로운 `DocumentOpener` 클래스를 생성합니다.
+
+```swift
+func open(_ document: Document, mode: OpenMode)
+```
+
+`OpenMode`와 `Document`를 파라미터로 넘겨주면서 test시 indirectly하게 값들을 전달해줄 수 있는 메서드가 만들어졌습니다.
+
+이제 `UIApplication.shared` 를 사용하는 문제가 남았습니다.
+
+우선 메서드 내에서 직접적으로 접근하는 방식을 없애도록 합니다. 클래스에 이니셜라이저로 두어서 우리가 그 UIApplication 인스턴스를 전달할 수 있게 만드는 방법이 있겠죠.
+
+```swift
+class DocumentOpener {
+ let application: UIApplication
+ init(application: UIApplication = UIApplication.shared) {
+	 self.application = application
+ }
+ /* … */
+}
+```
+
+그리고 위의 코드처럼 default 값을 줄 수도 있습니다. 그리고 open 메서드로 내려가보면,
+
+```swift
+class DocumentOpener {
+ /* … */
+ func open(_ document: Document, mode: OpenMode) {
+	 let modeString = mode.rawValue
+	 let url = URL(string: "myappscheme://open?id=\\(document.identifier)&mode=\\(modeString)")!
+
+	 if application.canOpenURL(url) {
+		 application.open(url, options: [:], completionHandler: nil)
+	 } else {
+		 handleURLError()
+	 }
+ }
+}
+```
+
+이제 더이상 `UIApplication.shared` 를 사용하지 않고, `application` 으로 대체할  수 있게 됩니다.
+
+UIApplication을 서브클래싱하여 canOpenURL과 open 메서드를 오버라이드하여 사용하는 방법을 떠올릴 수 있겠지만, UIApplication은 Singleton형태가 강제되어 있습니다.
+
+```swift
+protocol URLOpening {
+	func canOpenURL(_ url: URL) -> Bool
+	func open(_ url: URL, options: [String: Any], completionHandler: ((Bool) -> Void)?)
+}
+
+extension UIApplication: URLOpening {
+}
+```
+
+Protocol을 만들어보면 UIApplication의 메서드와 동일한 형태의 2개의 메서드를 가지게 만듭니다. 그리고 우리는 `UIApplication`이 `URLOpening` 이라는 프로토콜을 구현하게 하고 싶습니다. 그렇기에 `extension` 을 활용하여 `UIApplication`이 `URLOpening` 프로토콜을 준수하게 만들었습니다.
+
+기존에 UIApplication에 구현되어 있는 메서드와 protocol의 메서드가 **정확히 일치**하기 때문에 extension에 프로토콜 준수를 위한 다른 코드를 작성할 필요는 없습니다.
+
+이제 DocumentOpener 클래스로 돌아와서 프로토콜을 활용하여 더이상 UIApplication 자체를 필요로하지 않게 만들어 볼 수 있습니다.
+
+우선 프로퍼티와 이니셜라이저를 URLOpening프로토콜을 준수하는 어떠한 실행문도 받아들일 수 있게 바꿔줍니다.
+
+```swift
+class DocumentOpener {
+  let urlOpener: URLOpening
+	init(urlOpener: URLOpening = UIApplication.shared) {
+	  self.urlOpener = urlOpener
+  }
+	/* … */
+}
+```
+
+이니셜라이저에 `UIApplication.shared` 를 default 값으로 여전히 남겨놓았습니다. 이는 나중에 view controller에서 사용할 때에 편리함을 위해서 남겨두는 것입니다.
+
+마지막으로 기존에 application으로 사용되었던 부분을 urlOpener로 바꿔주면 됩니다.
+
+```swift
+class DocumentOpener {
+ func open(_ document: Document, mode: OpenMode) {
+	 let modeString = mode.rawValue
+	 let url = URL(string: "myappscheme://open?id=\\(document.identifier)&mode=\\(modeString)")!
+
+	 if urlOpener.canOpenURL(url) {
+		 urlOpener.open(url, options: [:], completionHandler: nil)
+	 } else {
+		 handleURLError()
+	 }
+	}
+}
+```
+
+이제 테스트로 돌아와보면 기존에 UIApplication은 우리가 테스트시 필요한 Control을 제공해주지 못해서 URLOpening 프로토콜을 상속한 Mock을 만들어 봅니다. 그리고 `canOpenURL` 과 `open` 에 대한 sub-implementation을 추가해줍니다.
+
+```swift
+class MockURLOpener: URLOpening {
+	 var canOpen = false
+	 var openedURL: URL?
+
+	 func canOpenURL(_ url: URL) -> Bool {
+		 return canOpen
+	 }
+
+	 func open(_ url: URL,
+	 options: [String: Any],
+	 completionHandler: ((Bool) -> Void)?) {
+		 openedURL = url
+	 }
+}
+```
+
+우선 `canOpenURL` 은 input처럼 동작을 합니다. 그래서 이 test는 이 input을 어떻게 Control 할것인지를 구현해 줄 필요가 있죠. 그래서 이 input을 담아줄 property인 `canOpen` 을 선언하고 반환해 줍니다.
+
+그리고 `open` 메서드는 Document Opener의 output처럼 동작하게 됩니다. 테스트는 이 메서드로 패스된 어떤 URL에 대해서 접근이 가능한지 알아보는 테스트입니다. 그래서 `openedURL` 이라는 프로퍼티를 생성하여 URL을 저장해줍니다. 나중에 읽을 수 있게 말이죠.
+
+자! 이제 테스트를 작성해보러 가겠습니다. 우선 우리는 아까 만들어 두었던 `MockURLOpener`의 인스턴스를 생성합니다. 그리고 그곳에 만들어 두었던 input으로 사용될 `canOpen` 프로퍼티에 접근해줍니다.
+
+그리고 우리는 documentOpener 인스턴스를 생성하여 urlOpener를 넘겨줍니다. 모든 세팅이 끝나면 이제 `open` 메서드를 호출합니다. document와 open mode를 전달하여 줍니다. 그리고 MockURLOpener의 openURL 프로퍼티와 예상했던 URL이 같은지 Assert해줍니다.
+
+```swift
+func testDocumentOpenerWhenItCanOpen() {
+	 let urlOpener = MockURLOpener()
+	 urlOpener.canOpen = true
+	 let documentOpener = DocumentOpener(urlOpener: urlOpener)
+	 documentOpener.open(Document(identifier: "TheID"), mode: .edit)
+	 XCTAssertEqual(urlOpener.openedURL, URL(string: "myappscheme://open?id=TheID&mode=edit"))
+}
+```
+
+이런 테스트 코드가 작성될 수 있겠죠!
+
+이 리팩토링 과정을 정리해본다면
+
+- Reduce references to shared instances : 직접적으로 UIApplication의 싱글턴 인스턴스를 사용하던 것을 빼주고
+- Accept parameterized input : 그것을 parameterized input으로 대체해 주었습니다. 이를 defendency injection이라고도 합니다.
+- Introduce a protocol : 이전에 의존하였던 concrete class로부터 프로토콜을 사용하여 코드를 분리시켰습니다.
+- Creating a testing implementation
+
+## Separating Logic and Effects
+
+다음은 Effects로부터 Logic을 분리시켜 testability를 향상시키는 방법에 대해서 보도록 하겠습니다.
+
+이번 예시는 OnDiskCache 클래스입니다. 이것은 이전에 서버에서 다운로드 한 적이 있는 Asset들에 대해서 앱에서 빠르게 찾아서 가져올 수 있게 할 때 사용하는 것입니다.
+
+```swift
+class OnDiskCache {
+	 struct Item {
+	 let path: String
+	 let age: TimeInterval
+	 let size: Int
+	 }
+	 var currentItems: Set<Item> { /* … */ }
+	 /* … */
+}
+```
+
+프로퍼티는 위의 코드와 같습니다. 그리고 메서드도 확인해 보겠습니다.
+
+```swift
+class OnDiskCache {
+ /* … */
+	 func cleanCache(maxSize: Int) throws {
+		 let sortedItems = self.currentItems.sorted { $0.age < $1.age }
+		 var cumulativeSize = 0
+	
+		 for item in sortedItems {
+			 cumulativeSize += item.size
+			 if cumulativeSize > maxSize {
+				 try FileManager.default.removeItem(atPath: item.path)
+			 }
+		 }
+	 }
+}
+```
+
+`cleanCache`라는 메서드입니다. cache를 cleanUp 하는 역할을 가진 메서드이죠.
+
