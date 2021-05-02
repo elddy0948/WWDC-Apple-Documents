@@ -313,5 +313,318 @@ class OnDiskCache {
 }
 ```
 
-`cleanCache`라는 메서드입니다. cache를 cleanUp 하는 역할을 가진 메서드이죠.
+`cleanCache`라는 메서드입니다. cache를 cleanUp 하는 역할을 가진 메서드이죠. 이 메서드를 주기적으로 호출해주면서 Cache가 File System에서 너무 많은 공간을 차지하지 않겠다는 보장을 하기위한 것입니다.
 
+이 메서드를 어떻게 테스트할 수 있을까요?
+
+우선 인풋, 인풋은 어떤게 올 수 있을까요? cleanCache 메서드에서 파라미터로 받고 있는 `maxSize`가 우선 인풋이 될 수 있겠죠! 두번째 인풋은 최근에 Cache에 저장된 아이템들의 리스트입니다. `currentItems`이죠. 하지만 이 currentItems는 File Manager를 통해서 가져올 수 있는 목록입니다. 즉 지금 테스트에서 필요로 하는 인풋은 File System으로 부터 얻어지는 것입니다. 의존관계가 생기는 것이죠.
+
+그리고 cleanCache 메서드는 반환 값이 없습니다. 그래서 아웃풋이 데이터가 될 수 없죠. Rather, it's the side effect of a certain set of files having been removed from the disc.
+
+이러한 File System에 대한 의존 때문에 이 메서드를 위한 테스트는 File Manager의 File System을 다루어야 한다는 것입니다.
+
+그래서 Setup으로는 임시 디렉토리를 생성해야하고, 특정한 사이즈의 파일들로 채워 넣어야 합니다. 그리고 Timestamp를 줘서 input을 제공하게 만들어 줘야 합니다.
+
+아웃풋을 검증하기 위해서는 어떤 파일이 아직 있는지를 확인하기 위해서 File System을 반환해 줄 필요가 있습니다.
+
+![https://s3-us-west-2.amazonaws.com/secure.notion-static.com/c8e567d3-9ffa-4247-ab05-5fe1ddd8c62b/Untitled.png](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/c8e567d3-9ffa-4247-ab05-5fe1ddd8c62b/Untitled.png)
+
+이를 해결할 수 있는 방법 중 하나는 앞서 살펴보았던 Protocol 과 Parameterization 기술을 사용하는 것입니다. 하지만 이런 방법을 사용하더라도 우리가 테스트 하려는 코드는 결국 File Manager에 의해서 중재되고 있습니다.
+
+We could take our clean cache method and factor out the logic responsible for deciding while files should be removed, the cleanupPolicy, which you can then interact with more directly.
+
+```swift
+protocol CleanupPolicy {
+	func itemsToRemove(from items: Set<OnDiskCache.Item>) -> Set<OnDiskCache.Item>
+}
+```
+
+우선 명확하게 테스트를 위해 사용하기 위한 API를 정의하기 위해서, CleanupPolicy Protocol을 정의해야 합니다. 여기서 `itemsToRemove` 라는 메서드를 가지는데 인풋으로 item의 Set를 받고, item의 Set를 반환해 줍니다. 여기서 반환되는 item의 Set는 제거된 후의 items입니다.
+
+```swift
+struct MaxSizeCleanupPolicy: CleanupPolicy {
+	 let maxSize: Int
+
+	 func itemsToRemove(from items: Set<OnDiskCache.Item>) -> Set<OnDiskCache.Item> {
+		 var itemsToRemove = Set<OnDiskCache.Item>()
+		 var cumulativeSize = 0
+		 let sortedItems = allItems.sorted { $0.age < $1.age }
+
+		 for item in sortedItems {
+			 cumulativeSize += item.size
+
+			 if cumulativeSize > maxSize {
+				 itemsToRemove.insert(item)
+			 }
+		 }
+	 return itemsToRemove
+	 }
+}
+```
+
+우선 max size 인풋을 받을 프로퍼티인 `maxSize` 를 선언합니다. 다음은 Protocol에서 필요로 하는 `itemsToRemove` 메서드를 선언해 줍니다. 다음은 메서드로 전달된 item들을 점검하고, `itemsToRemove` 라는 프로퍼티를 선언하여 제거 할 item들을 build-up합니다. 그리고 마지막에 메서드가 종료될 때 이것을 리턴해 줍니다.
+
+다음은 Set를 채우기 위해 item들을 최신순으로 정렬하여 `sortedItems` 에 담아줍니다. 그리고 각각의 item size를 모두 더해줍니다. 그러다가 maximum size에 도달하면 그 뒤에 아이템들은 제거대상이 됩니다. `itemsToRemove` Set에 담아줍니다.
+
+이렇게 코드를 만들면 아까전 보다 Data input과 output이 명확해 지는것을 확인할 수 있습니다.
+
+```swift
+func testMaxSizeCleanupPolicy() {
+	 let inputItems = Set([
+		 OnDiskCache.Item(path: "/item1", age: 5, size: 7),
+		 OnDiskCache.Item(path: "/item2", age: 3, size: 2),
+		 OnDiskCache.Item(path: "/item3", age: 9, size: 9)
+	 ])
+	 let outputItems = MaxSizeCleanupPolicy(maxSize: 10).itemsToRemove(from: inputItems)
+	 XCTAssertEqual(outputItems, [OnDiskCache.Item(path: "/item3", age: 9, size: 9)])
+}
+```
+
+이제 Test를 작성할 수 있습니다. 우선 항상 처음에는 input이 있어야겠죠! `inputItems`를 생성해줍니다. MaxSizeCleanupPolicy에 대한 인스턴스를 생성해줍니다. 그리고 메서드를 바로 호출하여서 필요한 값들을 넘겨줍니다. 그 반환값을 `outputItems` 에 저장합니다. 그리고 그 값과 예상한 값이 일치하는지 Asserting합니다. 테스트 코드가 완성되었습니다!
+
+```swift
+class OnDiskCache {
+ /* … */
+	 func cleanCache(policy: CleanupPolicy) throws {
+		 let itemsToRemove = policy.itemsToRemove(from: self.currentItems)
+		 for item in itemsToRemove {
+			 try FileManager.default.removeItem(atPath: item.path)
+		 }
+	 }
+}
+```
+
+그럼 이제 OnDiskCache 클래스의 cleanCache 메서드는 다음과 같이 수정될 수 있겠죠!
+
+이 테스트를 진행하면서 우리는 File Manager에 대한 Protocol을 구현하고 testable한 코드를 구현함으로서 매우 독립적인 unit test를 작성할 수 있게 하였습니다.
+
+그리고 이 예시에서 우리는 Side Effects를 활용하여 Business Logic 과 Algorithms를 타입들로 분리하는 방법을 알아보았습니다.
+
+- Extract algorithms : we looked at how to extract business logic and algorithms into separate types, away from the code, using side effects.
+- Functional style with value types : the algorithms tend to take on a rather functional style, using value types to describe the inputs and the outputs.
+- Thin layer on top to execute effects : We're left with a small amount of code that perform side effects based on the computer data.
+
+# Scalable Test Code
+
+앞서 우리는 앱의 코드를 testable하게 만들 수 있는 몇가지 기술들을 살펴보았습니다. 이번에는 이 코드를 scalable하게 만들 수 있는 방법에 대해 알아보려고 합니다. (Code Coverage에 관한 이야기인가? 🧐 )
+
+우선 테스트 코드를 Scalable하게 만들기 위해서는 테스트를 빠르게, 읽기 쉽게, modularized할 수 있는 몇가지 메서드에 대해서 살펴보아야 합니다.
+
+- Balance between UI and unit tests
+- Code to help UI tests scale
+- Quality of test code
+
+## Striking the right balance between UI and unit tests
+
+View my distribution of tests as a Pyramid. 테스트를 Pyramid형태로 보는 것.
+
+![https://s3-us-west-2.amazonaws.com/secure.notion-static.com/d6845e04-84b2-46d2-99c3-39a669b5390b/Untitled.png](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/d6845e04-84b2-46d2-99c3-39a669b5390b/Untitled.png)
+
+맨 꼭대기를 UI Test, 제일 아래를 Unit Test라고 볼 수 있습니다. 이 피라미드 형태를 잘 보면 **Unit Test는 UI Test보다 훨씬 많겠죠!** 그 이유는 **Unit Test의 속도가 UI Test보다 훨씬 빠르기 때문**이죠! 물론 UI Test와 Unit Test 사이에 **Integration Test** 또한 존재합니다. 하지만 오늘 세션에서는 UI Test와 Unit Test에 대해서 다룬다고 합니다!
+
+그리고 반대편에는 Maintenance(유지) Costs도 피라미드 형태로 나타낼 수 있습니다. 일반적으로 UI Test의 Maintenance Cost가 높습니다. 그 이유는 UI Test중에는 많은 일들이 일어날 가능성이 있기 때문이죠. 반면에 Unit Test는 적은 Maintenance cost가 발생합니다. 그래서 Unit test가 실패하면 그 즉시 어느 부분이 잘못되었다는 것을 알 수 있죠.
+
+물론 모든 UI Test와 Unit Test가 이 피라미드에 해당한다고 말할 수는 없죠! 이 피라미드 형태는 단지 Good Approximation(근사치)라고 할 수 있습니다. 그래서 이 두가지의 테스트를 고려할 때 두가지 테스트 각각의 강점을 파악해야 합니다.
+
+- Unit tests great for testing small, hard-to-reach code paths : Unit test는 작은 단위의 코드를 테스트 하거나, 테스트 하는 부분을 코드로 접근하지 않으면 안되는 상황일 때 유리합니다.
+- UI tests are better at testing integration of larger pieces : 반면에 UI test는 함께 동작하는 거대한 코드에 대한 테스트를 할 때 유리합니다.
+
+물론 Unit test가 UI test에서는 불가능한 앱의 모든 소스코드에 접근할 수 있다는 측면을 기억해야합니다.
+
+UI Test에 초점을 맞춰서 테스트 코드의 퀄리티를 높일 수 있는 몇가지 방법에 대해서 알아보도록 하겠습니다. 앞으로 알려줄 방법을 통해 테스트 코드를 작성해 나가면 테스트의 Scale을 넓힐 수 있을 것입니다.
+
+## Code to Help UI Tests Scale
+
+- Abstracting UI element queries
+- Creating objects and utility functions
+- Utilizing keyboard shortcuts
+
+### Abstracting UI element queries
+
+```swift
+app.buttons["blue"].tap()
+app.buttons["red"].tap()
+app.buttons["yellow"].tap()
+app.buttons["green"].tap()
+app.buttons["purple"].tap()
+app.buttons["orange"].tap()
+app.buttons["pink"].tap()
+```
+
+View Controller에 위와 같은 여러개의 버튼이 있습니다. 그리고 버튼들은 모두 같은 View 계층에 있죠. 다른것이라면 버튼의 이름이 다릅니다. 이 부분을 7번 작성하는 것 보다, 메서드로 묶어보도록 하겠습니다.
+
+```swift
+func tapButton(_ color: String) {
+	 app.buttons[color].tap()
+}
+tapButton("blue")
+tapButton("red")
+tapButton("yellow")
+tapButton("green")
+tapButton("purple")
+tapButton("orange")
+tapButton("pink")
+```
+
+이렇게 만들어질 수 있겠죠! 그러나 좀 더 발전시켜 보겠습니다. 메서드가 이름만 다르게 들어가서 여러번 호출되는 부분이 거슬리죠! 그 이름들을 배열로 만들어서 넣고, 반복문을 돌리도록 해보겠습니다.
+
+```swift
+let colors = ["blue", "red", "yellow", "green", "purple", "orange", "pink"]
+for color in colors {
+	 tapButton(color)
+}
+```
+
+좋아요! 유지 관리 부분에서도 훨씬 좋은 코드가 되었습니다. 나중에 새로운 버튼을 추가할 때에는 그냥 새로운 버튼의 이름만 배열에 추가해주면 만들어 지는 것입니다.
+
+- Store Parts of queries in a variable
+- Wrap complex queries in utility methods
+- Reduces noise and clutter in UI test
+
+UI Test의 특성상 우리는 이러한 쿼리를 많이 발생시키는 것을 문제 삼아야 합니다. 그래서 만약 같은 쿼리를 여러번 사용하고 있다면, 그것을 변수로 저장할 필요가 있습니다. 그게 정말 작은 부분일지라도 말이죠. 어디에 저장해두어야 합니다. 또한 아주 비슷한 쿼리가 있다면, 그것을 Helper 메서드를 활용하여 생성하는 것을 고려해보아야 합니다.
+
+그럼 코드가 더욱 Clean해지고, Readable해집니다.
+
+그래서 Scaling our test suite부분에서 본다면, 적은 라인의 코드, 고심해서 만들어낸 Helper 메서드들이 빠르고 쉬운 새로운 테스트를 만들 수 있게 도와줄 것입니다. 이것이 Abstracting UI element queries였습니다.
+
+### Creating objects and utility functions
+
+예시 코드를 보면서 살펴보겠습니다.
+
+```swift
+func testGameWithDifficultyBeginnerAndSoundOff() {
+
+	 app.navigationBars["Game.GameView"].buttons["Settings"].tap()
+	 app.buttons["Difficulty"].tap()
+	 app.buttons["beginner"].tap()
+	 app.navigationBars.buttons["Back"].tap()
+	 app.buttons["Sound"].tap()
+	 app.buttons["off"].tap()
+	 app.navigationBars.buttons["Back"].tap()
+	 app.navigationBars.buttons["Back"].tap()
+
+	 // test code
+}
+```
+
+이 코드는 Scalable code의 좋은 예가 아니라고 할 수 있습니다. 이 코드는 작성한 사람은 알아볼 수 있는 코드이지만, 나중에 다른 사람, 코드를 처음 보는 사람이 보게된다면 이게 무슨 동작을하는 코드인지 모르겠죠!
+
+그리고 이런 테스트 코드를 작성한다면, UI에 조금 변경이 생기면 테스트 코드가 잘 동작하지 않을 가능성이 큽니다.
+
+이를 고치기 위해서, Helper 메서드들로 추상화 해보겠습니다.
+
+```swift
+func setDifficulty(_ difficulty: String) {
+	 app.buttons["Difficulty"].tap()
+	 app.buttons[difficulty].tap()
+	 app.navigationBars.buttons["Back"].tap()
+}
+
+func setSound(_ sound: String) {
+	 app.buttons["Sound"].tap()
+	 app.buttons[sound].tap()
+	 app.navigationBars.buttons["Back"].tap()
+}
+```
+
+이렇게 Difficulty를 설정하는 메서드와 Sound를 설정하는 메서드로 나누어볼 수 있겠죠. 더 좋게 만들어볼 수 있을까요? difficulty와 sound를 enum으로 만들어볼 수 있죠! 난이도는 정해져있고, sound도 on/off로 정해져있기 때문이죠!
+
+```swift
+enum Difficulty {
+	 case beginner
+	 case intermediate
+	 case veteran
+}
+enum Sound {
+	 case on
+	 case off
+}
+func setDifficulty(_ difficulty: String) {
+	 // code
+}
+func setSound(_ sound: String) {
+	 // code
+}
+```
+
+이런 코드가 완성이됩니다! 이제 아까전에 봤던 코드로 돌아가 보겠습니다.
+
+```swift
+func testGameWithDifficultyBeginnerAndSoundOff() {
+
+	 app.navigationBars["Game.GameView"].buttons["Settings"].tap()
+	 setDifficulty(.beginner)
+	 setSound(.off)
+	 app.navigationBars.buttons["Back"].tap()
+
+	 // test code
+
+}
+```
+
+와우~ 확실하게 줄어들었어요! 읽기도 편해졌습니다! 나머지 부분도 개선해보고 싶은데 계속 가보겠습니다!
+
+```swift
+class GameApp: XCUIApplication {
+	 enum Difficulty { /* cases */ }
+	 enum Sound { /* cases */ }
+
+	 func setDifficulty(_ difficulty: Difficulty) { /* code */ }
+
+	 func setSound(_ sound: Sound) { /* code */ }
+
+	 func configureSettings(difficulty: Difficulty, sound: Sound) {
+		 app.navigationBars["Game.GameView"].buttons["Settings"].tap()
+		 setDifficulty(difficulty)
+		 setSound(sound)
+		 app.navigationBars.buttons["Back"].tap()
+	 }
+}
+```
+
+`GameApp` 이라는 클래스를 선언하고, 그안에 `Difficulty`와 `Sound` enum을 선언합니다. 그리고 아까 작성했던 `setDifficulty` 메서드와 `setSound` 메서드를 가져오고, `configureSettings` 라는 메서드를 추가합니다.
+
+그럼! 이제 테스트 코드에서는 호출 하나면 해결이 되겠죠!
+
+```swift
+func testGameWithDifficultyBeginnerAndSoundOff() {
+	 GameApp().configureSettings(difficulty: .beginner, sound: .off)
+	 // test code
+}
+```
+
+전보다 훨씬 Readable한 테스트가 만들어졌습니다. 이제 나중에 Setting을 사용하는 테스트를 만들 일이 있으면, 간단하게 코드 한줄로 해결할 수 있게 되었습니다. 그리고 다른 Setting 부분을 사용하는 테스트를 만들고 싶다면, 메서드를 수정하고 업데이트만 하면 끝나게 됩니다.
+
+### (이제까지 와서 Scale이라는 의미를 생각해 보았는데! Code Coverage라고 처음에 생각했지만 확장성에 더 가까운 것 같다. )
+
+테스트를 Scale하려고할 때 가장 중요한 부분 중 하나는 나중에 put into a library suite할 수 있는 추상화를 생성하는 것이다. 이를 함으로써
+
+- Encapsulate common testing workflows : 공통적인 작업흐름을 캡슐화 할 수 있고 그것이 여러개의 테스트에도 적용될 수 있게 한다.
+- Cross-platform code sharing : 다른 플랫폼들에 test code를 공유할 수 있다는 의미이기도하다.
+- Improves maintainability : 그리고 당연히 코드를 공유함으로써 유지 보수 측면에서도 향상시킬 수 있는 것이다.
+
+그리고 하나 더 보여주고 싶은 부분은 2017년에 새로운 Xcode의 기능인 `XCTContent.runActivity` 를 활용하는 방법이다.
+
+```swift
+class GameApp: XCUIApplication { NEW
+	 enum Difficulty { /* cases */ }
+	 enum Sound { /* cases */ }
+	 func setDifficulty(_ difficulty: Difficulty) { /* code */ }
+	 func setSound(_ sound: Sound) { /* code */ }
+
+	 func configureSettings(difficulty: Difficulty, sound: Sound) {
+		 XCTContext.runActivity(named: “Configure Settings: \\(difficulty), \\(sound)”) { _ in
+			 app.navigationBars["Game.GameView"].buttons["Settings"].tap()
+			 setDifficulty(difficulty)
+			 setSound(sound)
+			 app.navigationBars.buttons[“Back"].tap()
+		 }
+	 }
+}
+```
+
+이것을 활용하면 우리가 테스트를 실행시켰을 때 우리가 만들었던 top level에서 일어나는 액션까지 모두 로그로 기록하는 것이 아니라, 원하는 곳만 묶어서 로그로 남길 수 있다.
+
+![https://s3-us-west-2.amazonaws.com/secure.notion-static.com/7597d9dd-9e60-4d53-aa69-c7e4cf3f3978/Untitled.png](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/7597d9dd-9e60-4d53-aa69-c7e4cf3f3978/Untitled.png)
+
+## Utilizing keyboard shortcuts (macOS UI Tests)
